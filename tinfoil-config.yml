@@ -1,0 +1,35 @@
+cvm-version: 0.14.7
+cpus: 2
+memory: 8192
+
+networks:
+  backend:
+    egress: allowlist
+    allow:
+      - vikrckqkpxfltoodrpui.supabase.co
+      - inference.tinfoil.sh
+      - github-proxy.tinfoil.sh
+      - kds-proxy.tinfoil.sh
+
+containers:
+  - name: tilde-runner
+    image: ghcr.io/kurtykalabs/tilde-runner@sha256:2eaaaadb6ae5fe9d7fead8de33458a7a003bd4aa384568648caf81e70f602cbb
+    command: [hosted]
+    user: "10001:10001"
+    read_only: true
+    networks: [backend]
+    env:
+      - TILDE_RUNNER_STATE: "/state/runner"
+    secrets:
+      - TILDE_RUNNER_CONFIG
+      - TILDE_RUNNER_UNLOCK
+    tmpfs:
+      /state: "size=128m,mode=0700,uid=10001,gid=10001"
+
+shim:
+  upstream-port: 8937
+  paths:
+    - /health
+    - /v1/identity
+    - /v1/activate
+    - /v1/commands
