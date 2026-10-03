@@ -11,6 +11,9 @@ No deployable release has been published. `tinfoil-config.yml.example` is an
 incomplete template, deliberately not the root `tinfoil-config.yml` that Tinfoil
 deploys. The release workflows refuse to proceed without that file.
 
+The example pins a published private Linux amd64 prototype image. Its default
+command verifies the inference provider and exits; it is not a hosted service.
+
 Before the first release, finish the runner's hosted startup/pairing adapter and
 private-secret delivery, publish its image, and commit a complete
 `tinfoil-config.yml` with the actual immutable image digest, startup arguments,

@@ -6,7 +6,7 @@ memory: 8192
 
 containers:
   - name: tilde-runner
-    image: ghcr.io/kurtykalabs/tilde-runner@sha256:REPLACE_WITH_PUBLISHED_IMAGE_DIGEST
+    image: ghcr.io/kurtykalabs/tilde-runner@sha256:7d127b05df5ceafdf2c321ea9f5a4e5a235caffe2db5c7284d9b2e5a0b9e81b2
     # Add the implemented hosted command, secret names, volume and network policy.
     # The current image's verify-inference default exits; it does not serve chat.
 
