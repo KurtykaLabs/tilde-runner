@@ -30,7 +30,7 @@ jobs:
       - name: Require completed configuration
         run: |
           test -s tinfoil-config.yml || { echo '::error::Hosted configuration is not ready; the example cannot be released.'; exit 1; }
-          grep -Eq 'image: *"?ghcr.io/kurtykalabs/tilde-runner@sha256:[0-9a-f]{64}"? *$' tinfoil-config.yml
+          grep -Eq 'image: *"?ghcr.io/tildeapp/tilde-runner@sha256:[0-9a-f]{64}"? *$' tinfoil-config.yml
 
       - name: Measure, attest, and publish
         uses: tinfoilsh/measure-image-action@c33809b2a4a9ced570ab869765aecd44b4d3cbd5 # v0.11.0

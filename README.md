@@ -2,8 +2,8 @@
 
 Public deployment configuration and measured-release workflows for Tilde Runner.
 The Rust application source and image-build workflow remain in the private
-`KurtykaLabs/tilde` repository. The image is published privately to
-`ghcr.io/kurtykalabs/tilde-runner`.
+`tildeapp/tilde` repository. The image is published privately to
+`ghcr.io/tildeapp/tilde-runner`.
 
 ## Boot experiment
 
