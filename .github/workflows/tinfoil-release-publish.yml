@@ -1,0 +1,39 @@
+name: Tinfoil Release - Publish
+run-name: Publish release ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tinfoil-publish-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  measure-and-release:
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout tagged configuration
+        uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require completed configuration
+        run: |
+          test -s tinfoil-config.yml || { echo '::error::Hosted configuration is not ready; the example cannot be released.'; exit 1; }
+          grep -Eq 'image: *"?ghcr.io/kurtykalabs/tilde-runner@sha256:[0-9a-f]{64}"? *$' tinfoil-config.yml
+
+      - name: Measure, attest, and publish
+        uses: tinfoilsh/measure-image-action@c33809b2a4a9ced570ab869765aecd44b4d3cbd5 # v0.11.0
+        with:
+          config-file: ${{ github.workspace }}/tinfoil-config.yml
+          github-token: ${{ secrets.GITHUB_TOKEN }}
