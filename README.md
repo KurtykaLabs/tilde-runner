@@ -7,21 +7,25 @@ The Rust application source and image-build workflow remain in the private
 
 ## Boot experiment
 
-The initial `v0.1.0-m1.*` configuration runs the hosted service with disposable
-installation credentials supplied through Tinfoil-managed secrets. It exposes
+The RAM-backed configuration runs the hosted service with disposable
+installation credentials released by our keyserver at `https://keys.tildeapp.ai`. It exposes
 health, public identity, activation, and authenticated command endpoints.
 
 This configuration uses a RAM-backed state directory. Stopping or replacing the
 container loses its installation keys and unfinished work. Use only disposable
 accounts and data. This configuration does not provide persistent enrollment,
-attestation-gated private key custody, or the complete hosted chat migration.
+durable key recovery or the complete hosted chat migration. Private delivery
+requires the keyserver to approve the exact repository, release tag, and domain.
 Deployment is not approval to release household keys.
 
-Create repository secrets `TILDE_RUNNER_CONFIG` and `TILDE_RUNNER_UNLOCK` through
-Tinfoil's dashboard or CLI. The first contains the hosted runner configuration;
-the second is a random 32-byte key encoded as 64 hexadecimal characters. Keep
-both values out of this repository, GitHub Actions, and command-line arguments.
-The private source repository defines the configuration schema.
+Generate `TILDE_RUNNER_CONFIG` and `TILDE_RUNNER_UNLOCK` on the customer-controlled
+keyserver. The first contains the hosted runner configuration; the second is a
+random 32-byte key encoded as 64 hexadecimal characters. Keep both values out of
+this repository, GitHub Actions, command-line arguments, and Tinfoil-managed
+secret storage. When updating an older instance, explicitly clear its managed
+secret selections with `--secret=""`. The private source repository defines the
+configuration schema. The keyserver is contacted by the enclave bootstrap; the
+application itself has no need for keyserver egress.
 
 Configure read-only GHCR credentials in Tinfoil before deployment. The minimum
 measured allocation is two CPUs and 8192 MB RAM. The process runs as an
