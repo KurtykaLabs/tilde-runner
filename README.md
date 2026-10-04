@@ -9,7 +9,8 @@ The Rust application source and image-build workflow remain in the private
 
 The RAM-backed configuration runs the hosted service with disposable
 installation credentials released by our keyserver at `https://keys.tildeapp.ai`. It exposes
-health, public identity, activation, and authenticated command endpoints.
+health, public identity, activation, authenticated commands, and encrypted
+progress streams.
 
 This configuration uses a RAM-backed state directory. Stopping or replacing the
 container loses its installation keys and unfinished work. Use only disposable
