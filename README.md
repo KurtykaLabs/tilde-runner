@@ -45,6 +45,11 @@ unprivileged user with a read-only root and a bounded writable `/state` tmpfs.
    tag and dispatches **Tinfoil Release - Publish** on that tag. Wait for a
    successful GitHub release containing the deployment manifest and measurement.
    Creating a tag alone is insufficient.
+   Mark the new approved release as GitHub's latest release before booting it:
+   `gh release edit <tag> --repo tildeapp/tilde-runner --latest`.
+   Tinfoil automatically publishes freshness witnesses for the latest release;
+   an unpublished witness prevents private-secret delivery. Client and keyserver
+   trust policies still pin the exact tag and approved measurement, not `latest`.
 4. Deploy that exact release using the Tinfoil dashboard or CLI. Leave debug and
    confidential-computing bypass disabled.
 5. Verify the deployed endpoint against the expected repository and exact release
