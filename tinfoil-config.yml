@@ -15,7 +15,7 @@ networks:
 
 containers:
   - name: tilde-runner
-    image: ghcr.io/tildeapp/tilde-runner@sha256:dd5be22a399bb5ec287fc1012860490e29ee81f06c31770ce68bcf9c6cd6625e
+    image: ghcr.io/tildeapp/tilde-runner@sha256:9bcc17d26d9413dba61172458e9a0549805a1f921ea364991d2b61f3b2db3d6c
     command: [hosted]
     user: "10001:10001"
     read_only: true
@@ -25,6 +25,7 @@ containers:
     secrets:
       - TILDE_RUNNER_CONFIG
       - TILDE_RUNNER_UNLOCK
+      - TINFOIL_API_KEY
     tmpfs:
       /state: "size=128m,mode=0700,uid=10001,gid=10001"
 

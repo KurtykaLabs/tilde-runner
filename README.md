@@ -21,7 +21,10 @@ Deployment is not approval to release household keys.
 
 Generate `TILDE_RUNNER_CONFIG` and `TILDE_RUNNER_UNLOCK` on the customer-controlled
 keyserver. The first contains the hosted runner configuration; the second is a
-random 32-byte key encoded as 64 hexadecimal characters. Keep both values out of
+random 32-byte key encoded as 64 hexadecimal characters. `TINFOIL_API_KEY`, the
+inference provider key the runner uses to call the model directly, is stored on
+the keyserver and released the same way; Tinfoil rejects a deployment that mixes
+its managed secrets with keyserver delivery. Keep all three values out of
 this repository, GitHub Actions, command-line arguments, and Tinfoil-managed
 secret storage. When updating an older instance, explicitly clear its managed
 secret selections with `--secret=""`. The private source repository defines the
