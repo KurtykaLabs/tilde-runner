@@ -15,7 +15,7 @@ networks:
 
 containers:
   - name: tilde-runner
-    image: ghcr.io/tildeapp/tilde-runner@sha256:aa368d5e749af509109843894fd79dd23095b03ca997596b863a184d794e2e5f
+    image: ghcr.io/tildeapp/tilde-runner@sha256:eeb5caf0f9ad2ddb7f68e63098a39eab994cb2884654f93d3d4173a002974b38
     command: [hosted]
     user: "10001:10001"
     read_only: true
