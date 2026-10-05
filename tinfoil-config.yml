@@ -15,7 +15,7 @@ networks:
 
 containers:
   - name: tilde-runner
-    image: ghcr.io/tildeapp/tilde-runner@sha256:6598016f647413a83fbad87caec2bb35f94d5378ffd63e12d53916abf8f2f848
+    image: ghcr.io/tildeapp/tilde-runner@sha256:aa368d5e749af509109843894fd79dd23095b03ca997596b863a184d794e2e5f
     command: [hosted]
     user: "10001:10001"
     read_only: true
@@ -37,3 +37,5 @@ shim:
     - /v1/activate
     - /v1/commands
     - /v1/progress-stream
+    - /v1/guard
+    - /v1/recovery
