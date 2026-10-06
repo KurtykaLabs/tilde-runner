@@ -1,0 +1,93 @@
+# Daily attested check of the hosted runner and of the inference router it trusts. A failure fails
+# the job, and GitHub notifies the workflow's owner by email; no third-party service is involved.
+#
+# Repository variables (Settings > Secrets and variables > Actions > Variables):
+#   RUNNER_HOST            enclave hostname, e.g. tilde-runner-m1.tilde.containers.tinfoil.dev
+#   RUNNER_RELEASE_TAG     approved release tag, e.g. v0.1.0-m1.24 (the app's runner-client `Reference`)
+#   RUNNER_RELEASE_DIGEST  approved release digest, 64 hex characters, without the sha256: prefix
+#   ROUTER_APPROVED_DIGEST the runner's `APPROVED_DIGEST` for tinfoilsh/confidential-model-router
+# Update all of them in the same change that moves the app and runner pins.
+#
+# This repository is public, so its Actions logs are public. /v1/identity returns installation,
+# enrollment and family identifiers: its body is checked for shape and never printed.
+
+name: Uptime
+
+on:
+  schedule:
+    - cron: '17 14 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: uptime
+  cancel-in-progress: false
+
+env:
+  TINFOIL_CLI_VERSION: '0.19.0'
+  TINFOIL_CLI_SHA256: 'ef014c67a976b4b47941d084fb0a3837ba6eb59c9f4e662424c6826fb7a70f8c'
+  ROUTER_HOST: inference.tinfoil.sh
+  ROUTER_REPO: tinfoilsh/confidential-model-router
+
+jobs:
+  attested-uptime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUNNER_HOST: ${{ vars.RUNNER_HOST }}
+      RUNNER_RELEASE_TAG: ${{ vars.RUNNER_RELEASE_TAG }}
+      RUNNER_RELEASE_DIGEST: ${{ vars.RUNNER_RELEASE_DIGEST }}
+      ROUTER_APPROVED_DIGEST: ${{ vars.ROUTER_APPROVED_DIGEST }}
+    steps:
+      - name: Require pinned configuration
+        run: |
+          [[ "$RUNNER_HOST" =~ ^[a-z0-9.-]+$ ]] || { echo '::error::RUNNER_HOST is missing or invalid'; exit 1; }
+          [[ "$RUNNER_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo '::error::RUNNER_RELEASE_TAG is missing or invalid'; exit 1; }
+          [[ "$RUNNER_RELEASE_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::RUNNER_RELEASE_DIGEST is missing or invalid'; exit 1; }
+          [[ "$ROUTER_APPROVED_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::ROUTER_APPROVED_DIGEST is missing or invalid'; exit 1; }
+
+      - name: Install the Tinfoil CLI
+        run: |
+          asset="tinfoil-cli_${TINFOIL_CLI_VERSION}_linux_amd64.tar.gz"
+          workdir="$(mktemp -d)"
+          curl -fsSL --retry 3 -o "$workdir/$asset" \
+            "https://github.com/tinfoilsh/tinfoil-cli/releases/download/v${TINFOIL_CLI_VERSION}/${asset}"
+          echo "${TINFOIL_CLI_SHA256}  $workdir/$asset" | sha256sum --check --strict
+          tar -xzf "$workdir/$asset" -C "$workdir" tinfoil
+          install -m 0755 "$workdir/tinfoil" /usr/local/bin/tinfoil
+          tinfoil --version
+
+      - name: Verified runner health
+        run: |
+          repo="tildeapp/tilde-runner@${RUNNER_RELEASE_TAG}@sha256:${RUNNER_RELEASE_DIGEST}"
+          body="$(tinfoil http get "https://${RUNNER_HOST}/health" -e "$RUNNER_HOST" -r "$repo")"
+          echo "$body" | jq -c '{service, state, enrolled, version}'
+          echo "$body" | jq -e '.service == "tilde-runner" and .state == "ready" and .enrolled == true' > /dev/null \
+            || { echo '::error::Runner is attested but not ready and enrolled'; exit 1; }
+
+      - name: Verified runner identity
+        run: |
+          repo="tildeapp/tilde-runner@${RUNNER_RELEASE_TAG}@sha256:${RUNNER_RELEASE_DIGEST}"
+          tinfoil http get "https://${RUNNER_HOST}/v1/identity" -e "$RUNNER_HOST" -r "$repo" > "$RUNNER_TEMP/identity.json"
+          jq -e '
+            (.generation | type == "number")
+            and ([.signing_public_key, .encryption_public_key] | all(type == "string" and test("^[0-9a-f]{64}$")))
+            and ([.installation_id, .enrollment_id, .family_id] | all(type == "string" and length > 0))
+          ' "$RUNNER_TEMP/identity.json" > /dev/null \
+            || { echo '::error::Runner identity is missing required fields'; exit 1; }
+          rm -f "$RUNNER_TEMP/identity.json"
+          echo 'Runner identity has the expected shape.'
+
+      - name: Inference router measurement matches the runner's pin
+        run: |
+          tinfoil attestation verify -e "$ROUTER_HOST" -r "$ROUTER_REPO" -j > "$RUNNER_TEMP/router.json"
+          jq -c '{enclave, repo, digest, status, freshness_expires_at}' "$RUNNER_TEMP/router.json"
+          status="$(jq -r '.status' "$RUNNER_TEMP/router.json")"
+          digest="$(jq -r '.digest' "$RUNNER_TEMP/router.json")"
+          [ "$status" = "ok" ] || { echo "::error::Router attestation status is $status"; exit 1; }
+          if [ "$digest" != "$ROUTER_APPROVED_DIGEST" ]; then
+            echo "::error::Router release drifted: attested $digest, runner approves $ROUTER_APPROVED_DIGEST. Hosted inference fails closed until the runner pin is reviewed and released."
+            exit 1
+          fi
