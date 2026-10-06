@@ -26,16 +26,13 @@ volumes:
 
 containers:
   - name: tilde-runner
-    image: ghcr.io/tildeapp/tilde-runner@sha256:895f713792f06c64d825cd8d49c4630c404ba4f4ead01cba6c2c1164c575a254
+    image: ghcr.io/tildeapp/tilde-runner@sha256:20985550b76603b752b69cb0d018f35d0b46f763d8660bff2a3661374d4f0a1e
     command: [hosted]
     user: "10001:10001"
     read_only: true
     networks: [backend]
     env:
       - TILDE_RUNNER_STATE: "/state/runner"
-      # First release with the volume only: lets an empty disk import the bridge record once.
-      # The next release drops it, so a lost disk can never re-import a restored bridge record.
-      - TILDE_RUNNER_IMPORT_BRIDGE: "1"
     secrets:
       - TILDE_RUNNER_CONFIG
       - TILDE_RUNNER_UNLOCK
