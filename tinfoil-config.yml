@@ -15,7 +15,7 @@ networks:
 
 containers:
   - name: tilde-runner
-    image: ghcr.io/tildeapp/tilde-runner@sha256:4af1bbac9a20e504084aa49d050d6efbff28b8129a9bbdf08712e325873b11e5
+    image: ghcr.io/tildeapp/tilde-runner@sha256:b827d3c3493da3aa17758c986e3b3218ffa6a5da19269eaab645376369a7dfe2
     command: [hosted]
     user: "10001:10001"
     read_only: true
@@ -28,6 +28,17 @@ containers:
       - TINFOIL_API_KEY
     tmpfs:
       /state: "size=128m,mode=0700,uid=10001,gid=10001"
+    # The persistent disk is attached here and left unused until the runner's durable state
+    # moves onto it (TDE-320); the runner still keeps its state under /state.
+    volumes:
+      - disk:/disk
+    # The image carries no HTTP client; the binary checks its own /health on the listen port.
+    healthcheck:
+      test: ["CMD", "tilde-runner", "health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 2m
 
 shim:
   upstream-port: 8937
