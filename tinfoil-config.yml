@@ -13,6 +13,13 @@ networks:
       - github-proxy.tinfoil.sh
       - kds-proxy.tinfoil.sh
 
+# The persistent disk ("Tilde Runner Disk", attached to the `disk` mount) is encrypted inside the
+# enclave with a secret this keyserver releases to approved releases only; the enclave never
+# generates or stores it. The runner leaves the disk unused until TDE-320 moves its state there.
+volumes:
+  - name: disk
+    key-secret: TILDE_RUNNER_DISK_KEY
+
 containers:
   - name: tilde-runner
     image: ghcr.io/tildeapp/tilde-runner@sha256:b827d3c3493da3aa17758c986e3b3218ffa6a5da19269eaab645376369a7dfe2
@@ -28,8 +35,6 @@ containers:
       - TINFOIL_API_KEY
     tmpfs:
       /state: "size=128m,mode=0700,uid=10001,gid=10001"
-    # The persistent disk is attached here and left unused until the runner's durable state
-    # moves onto it (TDE-320); the runner still keeps its state under /state.
     volumes:
       - disk:/disk
     # The image carries no HTTP client; the binary checks its own /health on the listen port.
