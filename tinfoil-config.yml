@@ -20,6 +20,9 @@ networks:
 volumes:
   - name: disk
     key-secret: TILDE_RUNNER_DISK_KEY
+    # The mount root is owned by this uid, so the container user (10001) can create its state
+    # directory; without it the root-owned mount made m1.29 exit with RUNNER_STATE_DISK_UNWRITABLE.
+    owner: 10001
 
 containers:
   - name: tilde-runner
