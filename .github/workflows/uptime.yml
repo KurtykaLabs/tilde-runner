@@ -1,3 +1,5 @@
+# Destined for tildeapp/tilde-runner/.github/workflows/uptime.yml; kept here for review until moved.
+#
 # Daily attested check of the hosted runner and of the inference router it trusts. A failure fails
 # the job, and GitHub notifies the workflow's owner by email; no third-party service is involved.
 #
@@ -5,8 +7,20 @@
 #   RUNNER_HOST            enclave hostname, e.g. tilde-runner-m1.tilde.containers.tinfoil.dev
 #   RUNNER_RELEASE_TAG     approved release tag, e.g. v0.1.0-m1.24 (the app's runner-client `Reference`)
 #   RUNNER_RELEASE_DIGEST  approved release digest, 64 hex characters, without the sha256: prefix
-#   ROUTER_APPROVED_DIGEST the runner's `APPROVED_DIGEST` for tinfoilsh/confidential-model-router
+#   ROUTER_APPROVED_DIGEST the router digests the live runner accepts for
+#                          tinfoilsh/confidential-model-router: one digest, or a comma-separated list
+#                          (no spaces) of the current and the next digest
 # Update all of them in the same change that moves the app and runner pins.
+#
+# Router allowlist. The check passes when the router's attested digest is any entry of
+# ROUTER_APPROVED_DIGEST. During a Tinfoil router rollout, list the current and the next digest so the
+# handoff does not page. The list must equal the set the deployed runner accepts (`APPROVED_DIGEST`
+# in runner/rust/src/inference.rs): while the runner pins a single digest, listing a digest it does
+# not accept would let this check pass while hosted inference fails with `release_not_approved`. Drop
+# the old digest once the router has moved and the runner release that pins only the new one is live.
+#
+# /health must report `"store":"volume"` and no `volume_error`: the durable state is on the encrypted
+# volume. `bridge` or a `volume_error` means the volume could not be used (custody check 24).
 #
 # This repository is public, so its Actions logs are public. /v1/identity returns installation,
 # enrollment and family identifiers: its body is checked for shape and never printed.
@@ -46,7 +60,7 @@ jobs:
           [[ "$RUNNER_HOST" =~ ^[a-z0-9.-]+$ ]] || { echo '::error::RUNNER_HOST is missing or invalid'; exit 1; }
           [[ "$RUNNER_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo '::error::RUNNER_RELEASE_TAG is missing or invalid'; exit 1; }
           [[ "$RUNNER_RELEASE_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::RUNNER_RELEASE_DIGEST is missing or invalid'; exit 1; }
-          [[ "$ROUTER_APPROVED_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::ROUTER_APPROVED_DIGEST is missing or invalid'; exit 1; }
+          [[ "$ROUTER_APPROVED_DIGEST" =~ ^[0-9a-f]{64}(,[0-9a-f]{64})*$ ]] || { echo '::error::ROUTER_APPROVED_DIGEST is missing or invalid'; exit 1; }
 
       - name: Install the Tinfoil CLI
         run: |
@@ -63,9 +77,11 @@ jobs:
         run: |
           repo="tildeapp/tilde-runner@${RUNNER_RELEASE_TAG}@sha256:${RUNNER_RELEASE_DIGEST}"
           body="$(tinfoil http get "https://${RUNNER_HOST}/health" -e "$RUNNER_HOST" -r "$repo")"
-          echo "$body" | jq -c '{service, state, enrolled, version}'
+          echo "$body" | jq -c '{service, state, enrolled, version, store, volume_error}'
           echo "$body" | jq -e '.service == "tilde-runner" and .state == "ready" and .enrolled == true' > /dev/null \
             || { echo '::error::Runner is attested but not ready and enrolled'; exit 1; }
+          echo "$body" | jq -e '.store == "volume" and (has("volume_error") | not)' > /dev/null \
+            || { echo '::error::Runner state is not on the encrypted volume'; exit 1; }
 
       - name: Verified runner identity
         run: |
@@ -80,14 +96,17 @@ jobs:
           rm -f "$RUNNER_TEMP/identity.json"
           echo 'Runner identity has the expected shape.'
 
-      - name: Inference router measurement matches the runner's pin
+      - name: Inference router measurement is in the runner's allowlist
         run: |
           tinfoil attestation verify -e "$ROUTER_HOST" -r "$ROUTER_REPO" -j > "$RUNNER_TEMP/router.json"
           jq -c '{enclave, repo, digest, status, freshness_expires_at}' "$RUNNER_TEMP/router.json"
           status="$(jq -r '.status' "$RUNNER_TEMP/router.json")"
           digest="$(jq -r '.digest' "$RUNNER_TEMP/router.json")"
           [ "$status" = "ok" ] || { echo "::error::Router attestation status is $status"; exit 1; }
-          if [ "$digest" != "$ROUTER_APPROVED_DIGEST" ]; then
-            echo "::error::Router release drifted: attested $digest, runner approves $ROUTER_APPROVED_DIGEST. Hosted inference fails closed until the runner pin is reviewed and released."
-            exit 1
-          fi
+          case ",${ROUTER_APPROVED_DIGEST}," in
+            *",${digest},"*) echo 'Router digest is approved.' ;;
+            *)
+              echo "::error::Router release drifted: attested $digest, runner approves $ROUTER_APPROVED_DIGEST. Hosted inference fails closed until the runner pin is reviewed and released."
+              exit 1
+              ;;
+          esac
