@@ -49,7 +49,9 @@ name: Uptime
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    # Every 15 minutes, off the quarter-hour marks: GitHub starves schedules at :00/:15/:30/:45
+    # (its peak-load minutes) — '*/15' did not fire once in the two hours after it was pushed.
+    - cron: '7-59/15 * * * *'
   workflow_dispatch:
     inputs:
       dry_run:
