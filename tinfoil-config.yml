@@ -35,7 +35,7 @@ containers:
       - TILDE_RUNNER_STATE: "/state/runner"
       # Rollout switch (M4 design §11): "0" serves exactly the pinned household through one worker
       # and admits no other family (R2); "1" also serves every family the host registry lists (R3).
-      - TILDE_RUNNER_ADMIT_FAMILIES: "0"
+      - TILDE_RUNNER_ADMIT_FAMILIES: "1"
     secrets:
       - TILDE_RUNNER_CONFIG
       - TILDE_RUNNER_UNLOCK
