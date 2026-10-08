@@ -1,36 +1,62 @@
-# Destined for tildeapp/tilde-runner/.github/workflows/uptime.yml; kept here for review until moved.
+# Destined for tildeapp/tilde-runner/.github/workflows/uptime.yml. Copy it there with
+# `runner/ops/mirror_uptime.sh <tilde-runner checkout>`, which also copies the assertion script
+# (ops/uptime_check.sh), its dry-run fixtures (ops/uptime_fixtures/) and a standard-library-only
+# copy of the approved-releases verifier with the approval key compiled into the app
+# (ops/approved-releases/). Every assertion lives in uptime_check.sh; its cases are
+# runner/ops/uptime_check_test.sh.
 #
-# Daily attested check of the hosted runner and of the inference router it trusts. A failure fails
+# every 15 minutes attested check of the hosted runner and of the inference router it trusts. A failure fails
 # the job, and GitHub notifies the workflow's owner by email; no third-party service is involved.
 #
 # Repository variables (Settings > Secrets and variables > Actions > Variables):
-#   RUNNER_HOST            enclave hostname, e.g. tilde-runner-m1.tilde.containers.tinfoil.dev
-#   RUNNER_RELEASE_TAG     approved release tag, e.g. v0.1.0-m1.24 (the app's runner-client `Reference`)
-#   RUNNER_RELEASE_DIGEST  approved release digest, 64 hex characters, without the sha256: prefix
-#   ROUTER_APPROVED_DIGEST the router digests the live runner accepts for
-#                          tinfoilsh/confidential-model-router: one digest, or a comma-separated list
-#                          (no spaces) of the current and the next digest
-# Update all of them in the same change that moves the app and runner pins.
+#   RUNNER_HOST                enclave hostname, e.g. tilde-runner-m1.tilde.containers.tinfoil.dev
+#   APPROVED_LIST_MIN_VERSION  optional: the lowest approved-releases list version accepted. The
+#                              check also remembers the last version it verified (an Actions cache
+#                              entry), so this only matters after that entry is evicted or to raise
+#                              the floor by hand.
+# No release tag, release digest or router digest is configured here: the signed list decides.
 #
-# Router allowlist. The check passes when the router's attested digest is any entry of
-# ROUTER_APPROVED_DIGEST. During a Tinfoil router rollout, list the current and the next digest so the
-# handoff does not page. The list must equal the set the deployed runner accepts (`APPROVED_DIGEST`
-# in runner/rust/src/inference.rs): while the runner pins a single digest, listing a digest it does
-# not accept would let this check pass while hosted inference fails with `release_not_approved`. Drop
-# the old digest once the router has moved and the runner release that pins only the new one is live.
+# Assertions, in order:
+#   1. https://tildeapp.ai/approved-releases.json verifies under the compiled approval key (or a
+#      successor it endorsed); router.repo is tinfoilsh/confidential-model-router; its version is
+#      not below the last verified version or APPROVED_LIST_MIN_VERSION; issued_at is under 7 days
+#      old (a warning from 6 days) and not in the future.
+#   2. The runner's attested release digest (any release of tildeapp/tilde-runner) is in the list's
+#      `approved` and not in `revoked`. Every request below is pinned to that tag and digest.
+#   3. /health: service tilde-runner, `state` ready, `enrolled` true, `store` volume, no
+#      `volume_error` (custody check 24); `trust_list.status` current, or stale under 7 days (a
+#      warning); `missing`, an absent `trust_list` or `age_seconds` of 7 days or more fail.
+#      When `families` is present (R2, `tilde-runner hosted`): `families.unreadable`,
+#      `families.refused` and `families.breaker_open` are 0 and `host` is registered. `state` stays
+#      the pinned family's alone, so another family's refusal shows only in `families` and
+#      `refused_codes`. Printing `trust_list`, `host`, `families` and `refused_codes` is safe.
+#   4. /v2/host has exactly `host_id` (lowercase UUID), `signing_public_key` and
+#      `routing_public_key` (64 lowercase hex). The Tinfoil shim's not_found answer is accepted
+#      only while /health has no `families` (R1); /v1/identity's shape is checked then instead.
+#   5. The router's attested digest is in the list's `router.approved` and not in `router.revoked`:
+#      exactly the set the runner accepts (runner/rust/src/trust_list.rs). A Tinfoil router
+#      rollover is approved by publishing a list, not by a runner release.
 #
-# /health must report `"store":"volume"` and no `volume_error`: the durable state is on the encrypted
-# volume. `bridge` or a `volume_error` means the volume could not be used (custody check 24).
+# Dry run: `workflow_dispatch` with `dry_run` set to a fixture runs assertions 3 and 4 against
+# ops/uptime_fixtures/ instead of the enclave. `r2-refused-family` must fail; `r1` and `r2` must
+# pass. Locally: `runner/ops/uptime_check.sh health runner/ops/uptime_fixtures/<fixture>.json`.
 #
-# This repository is public, so its Actions logs are public. /v1/identity returns installation,
-# enrollment and family identifiers: its body is checked for shape and never printed.
+# This repository is public, so its Actions logs are public. /v2/host and /v1/identity return host,
+# installation, enrollment and family identifiers: their bodies are checked for shape and never
+# printed. The workflow handles no secrets.
 
 name: Uptime
 
 on:
   schedule:
-    - cron: '17 14 * * *'
+    - cron: '*/15 * * * *'
   workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Run the /health and /v2/host assertions against a fixture instead of the enclave
+        type: choice
+        default: 'off'
+        options: ['off', 'r1', 'r2', 'r2-refused-family']
 
 permissions:
   contents: read
@@ -42,25 +68,34 @@ concurrency:
 env:
   TINFOIL_CLI_VERSION: '0.19.0'
   TINFOIL_CLI_SHA256: 'ef014c67a976b4b47941d084fb0a3837ba6eb59c9f4e662424c6826fb7a70f8c'
+  APPROVED_LIST_URL: https://tildeapp.ai/approved-releases.json
+  RUNNER_REPO: tildeapp/tilde-runner
   ROUTER_HOST: inference.tinfoil.sh
   ROUTER_REPO: tinfoilsh/confidential-model-router
 
 jobs:
   attested-uptime:
+    if: (inputs.dry_run || 'off') == 'off'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
       RUNNER_HOST: ${{ vars.RUNNER_HOST }}
-      RUNNER_RELEASE_TAG: ${{ vars.RUNNER_RELEASE_TAG }}
-      RUNNER_RELEASE_DIGEST: ${{ vars.RUNNER_RELEASE_DIGEST }}
-      ROUTER_APPROVED_DIGEST: ${{ vars.ROUTER_APPROVED_DIGEST }}
+      APPROVED_LIST_MIN_VERSION: ${{ vars.APPROVED_LIST_MIN_VERSION }}
     steps:
-      - name: Require pinned configuration
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Require configuration
         run: |
           [[ "$RUNNER_HOST" =~ ^[a-z0-9.-]+$ ]] || { echo '::error::RUNNER_HOST is missing or invalid'; exit 1; }
-          [[ "$RUNNER_RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo '::error::RUNNER_RELEASE_TAG is missing or invalid'; exit 1; }
-          [[ "$RUNNER_RELEASE_DIGEST" =~ ^[0-9a-f]{64}$ ]] || { echo '::error::RUNNER_RELEASE_DIGEST is missing or invalid'; exit 1; }
-          [[ "$ROUTER_APPROVED_DIGEST" =~ ^[0-9a-f]{64}(,[0-9a-f]{64})*$ ]] || { echo '::error::ROUTER_APPROVED_DIGEST is missing or invalid'; exit 1; }
+          [[ "$APPROVED_LIST_MIN_VERSION" =~ ^[0-9]*$ ]] || { echo '::error::APPROVED_LIST_MIN_VERSION must be a whole number'; exit 1; }
+          mkdir -p "$RUNNER_TEMP/uptime"
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: ops/approved-releases/go.mod
+          cache: false
 
       - name: Install the Tinfoil CLI
         run: |
@@ -73,40 +108,68 @@ jobs:
           install -m 0755 "$workdir/tinfoil" /usr/local/bin/tinfoil
           tinfoil --version
 
+      # The newest cache entry holds the last list version a run verified; each run saves its own.
+      - name: Restore the last verified list version
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/approved-list-floor
+          key: approved-list-floor-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: approved-list-floor-
+
+      - name: Signed approved-releases list
+        run: |
+          curl -fsS --proto '=https' --retry 3 --max-time 30 -o "$RUNNER_TEMP/uptime/list.json" "$APPROVED_LIST_URL" \
+            || { echo '::error::Could not fetch the approved-releases list'; exit 1; }
+          ops/uptime_check.sh list "$RUNNER_TEMP/uptime/list.json" --out "$RUNNER_TEMP/uptime/approved.json" \
+            --floor-file "$RUNNER_TEMP/approved-list-floor/version" --min-version "$APPROVED_LIST_MIN_VERSION"
+
+      - name: Remember the verified list version
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/approved-list-floor
+          key: approved-list-floor-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: Live runner release is approved
+        run: |
+          tinfoil attestation verify -e "$RUNNER_HOST" -r "$RUNNER_REPO" -j > "$RUNNER_TEMP/uptime/runner.json" || true
+          ops/uptime_check.sh release "$RUNNER_TEMP/uptime/approved.json" "$RUNNER_TEMP/uptime/runner.json" --spec-out "$RUNNER_TEMP/uptime/runner-spec"
+
       - name: Verified runner health
         run: |
-          repo="tildeapp/tilde-runner@${RUNNER_RELEASE_TAG}@sha256:${RUNNER_RELEASE_DIGEST}"
-          body="$(tinfoil http get "https://${RUNNER_HOST}/health" -e "$RUNNER_HOST" -r "$repo")"
-          echo "$body" | jq -c '{service, state, enrolled, version, store, volume_error}'
-          echo "$body" | jq -e '.service == "tilde-runner" and .state == "ready" and .enrolled == true' > /dev/null \
-            || { echo '::error::Runner is attested but not ready and enrolled'; exit 1; }
-          echo "$body" | jq -e '.store == "volume" and (has("volume_error") | not)' > /dev/null \
-            || { echo '::error::Runner state is not on the encrypted volume'; exit 1; }
+          tinfoil http get "https://${RUNNER_HOST}/health" -e "$RUNNER_HOST" -r "$(cat "$RUNNER_TEMP/uptime/runner-spec")" > "$RUNNER_TEMP/uptime/health.json"
+          ops/uptime_check.sh health "$RUNNER_TEMP/uptime/health.json"
 
-      - name: Verified runner identity
+      - name: Verified host document
         run: |
-          repo="tildeapp/tilde-runner@${RUNNER_RELEASE_TAG}@sha256:${RUNNER_RELEASE_DIGEST}"
-          tinfoil http get "https://${RUNNER_HOST}/v1/identity" -e "$RUNNER_HOST" -r "$repo" > "$RUNNER_TEMP/identity.json"
-          jq -e '
-            (.generation | type == "number")
-            and ([.signing_public_key, .encryption_public_key] | all(type == "string" and test("^[0-9a-f]{64}$")))
-            and ([.installation_id, .enrollment_id, .family_id] | all(type == "string" and length > 0))
-          ' "$RUNNER_TEMP/identity.json" > /dev/null \
-            || { echo '::error::Runner identity is missing required fields'; exit 1; }
-          rm -f "$RUNNER_TEMP/identity.json"
-          echo 'Runner identity has the expected shape.'
+          spec="$(cat "$RUNNER_TEMP/uptime/runner-spec")"
+          tinfoil http get "https://${RUNNER_HOST}/v2/host" -e "$RUNNER_HOST" -r "$spec" > "$RUNNER_TEMP/uptime/host.json"
+          ops/uptime_check.sh host "$RUNNER_TEMP/uptime/host.json" "$RUNNER_TEMP/uptime/health.json" --route-out "$RUNNER_TEMP/uptime/route"
+          if [ "$(cat "$RUNNER_TEMP/uptime/route")" = absent ]; then
+            tinfoil http get "https://${RUNNER_HOST}/v1/identity" -e "$RUNNER_HOST" -r "$spec" > "$RUNNER_TEMP/uptime/identity.json"
+            ops/uptime_check.sh identity "$RUNNER_TEMP/uptime/identity.json"
+          fi
+          rm -f "$RUNNER_TEMP/uptime/host.json" "$RUNNER_TEMP/uptime/identity.json"
 
-      - name: Inference router measurement is in the runner's allowlist
+      - name: Inference router release is in the signed list
         run: |
-          tinfoil attestation verify -e "$ROUTER_HOST" -r "$ROUTER_REPO" -j > "$RUNNER_TEMP/router.json"
-          jq -c '{enclave, repo, digest, status, freshness_expires_at}' "$RUNNER_TEMP/router.json"
-          status="$(jq -r '.status' "$RUNNER_TEMP/router.json")"
-          digest="$(jq -r '.digest' "$RUNNER_TEMP/router.json")"
-          [ "$status" = "ok" ] || { echo "::error::Router attestation status is $status"; exit 1; }
-          case ",${ROUTER_APPROVED_DIGEST}," in
-            *",${digest},"*) echo 'Router digest is approved.' ;;
-            *)
-              echo "::error::Router release drifted: attested $digest, runner approves $ROUTER_APPROVED_DIGEST. Hosted inference fails closed until the runner pin is reviewed and released."
-              exit 1
-              ;;
-          esac
+          tinfoil attestation verify -e "$ROUTER_HOST" -r "$ROUTER_REPO" -j > "$RUNNER_TEMP/uptime/router.json" || true
+          ops/uptime_check.sh router "$RUNNER_TEMP/uptime/approved.json" "$RUNNER_TEMP/uptime/router.json"
+
+  dry-run:
+    if: (inputs.dry_run || 'off') != 'off'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FIXTURE: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Assertions against a fixture
+        run: |
+          fixtures=ops/uptime_fixtures
+          host="$fixtures/host-r2.json"
+          if [ "$FIXTURE" = r1 ]; then host="$fixtures/host-absent.json"; fi
+          ops/uptime_check.sh health "$fixtures/health-$FIXTURE.json"
+          ops/uptime_check.sh host "$host" "$fixtures/health-$FIXTURE.json" --route-out "$RUNNER_TEMP/route"
