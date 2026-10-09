@@ -13,9 +13,9 @@
 #
 # LIST is the signed approved-releases envelope; DOC is the document `list` verified out of it.
 # ATTESTATION is `tinfoil attestation verify -j` output. HEALTH, HOST and IDENTITY are the bodies
-# `tinfoil http get` printed for /health, /v2/host and /v1/identity.
+# `tinfoil http get` printed for /health, /v2/host and the pairing identity document.
 #
-# The destination repository's Actions logs are public: /v2/host and /v1/identity carry host,
+# The destination repository's Actions logs are public: /v2/host and the identity document carry host,
 # installation, enrollment and family identifiers and are checked for shape, never printed.
 set -euo pipefail
 
@@ -206,7 +206,7 @@ cmd_health() {
   [ "${2:-}" = "--pre-r1" ] && pre_r1=true
   [ -n "$health" ] || usage health
   jq -e 'type == "object"' "$health" >/dev/null 2>&1 || die "/health did not return a JSON object"
-  jq -c '{service, state, enrolled, version, store, volume_error, trust_list, host, families, refused_codes}
+  jq -c '{service, state, enrolled, version, store, volume_error, trust_list, host, families, refused_codes, isolation}
          | with_entries(select(.value != null))' "$health"
 
   jq -e '.service == "tilde-runner" and .state == "ready" and .enrolled == true' "$health" >/dev/null \
