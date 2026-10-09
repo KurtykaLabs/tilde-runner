@@ -56,12 +56,6 @@ shim:
   upstream-port: 8937
   paths:
     - /health
-    - /v1/identity
-    - /v1/activate
-    - /v1/commands
-    - /v1/progress-stream
-    - /v1/guard
-    - /v1/recovery
     - /v2/host
     - /v2/identity
     - /v2/activate
